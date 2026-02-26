@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catch the Stars – play.fun embed</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #1a1a2e;
+            font-family: Arial, sans-serif;
+        }
+        .game-container {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 8px;
+            background: #0f3460;
+            cursor: none; /* Hide default cursor – paddle acts as cursor */
+            touch-action: none; /* Prevent touch scrolling inside canvas */
+        }
+        .info {
+            margin-top: 15px;
+            color: #e94560;
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .score {
+            background: #0f3460;
+            padding: 8px 20px;
+            border-radius: 30px;
+            color: #f0f0f0;
+        }
+        .game-over {
+            color: #e94560;
+            font-size: 20px;
+            margin: 0 15px;
+        }
+        button {
+            background: #e94560;
+            border: none;
+            color: white;
+            font-size: 18px;
+            padding: 8px 25px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+            border: 2px solid #0f4383;
+        }
+        button:hover {
+            background: #ff6b8b;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="600" height="400"></canvas>
+        <div class="info">
+            <span class="score">⭐ Score: <span id="scoreValue">0</span></span>
+            <span id="gameOverMessage" class="game-over"></span>
+            <button id="restartButton">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const scoreSpan = document.getElementById('scoreValue');
+            const gameOverSpan = document.getElementById('gameOverMessage');
+            const restartBtn = document.getElementById('restartButton');
+
+            // Game settings
+            let paddleWidth = 80;
+            const basePaddleWidth = 80;
+                        // Bonus state
+                        let freezeActive = false;
+                        let freezeTimeout = null;
+                        let x2Active = false;
+                        let x2Timeout = null;
+            const paddleHeight = 15;
+            const paddleY = canvas.height - 30;
+            const starRadius = 8 * 1.6;
+            const baseSpeed = 2.5;
+            let maxMisses = 3;
+
+            // Game state
+            let paddleX = (canvas.width - paddleWidth) / 2;
+            let stars = [];
+            let score = 0;
+            let misses = 0;
+            let gameOver = false;
+            let animationFrame = null;
+            let mouseInside = false; // just for a friendly reminder (optional)
+
+            // Solana logo image
+            const solanaImg = new window.Image();
+            solanaImg.src = 'solana.png';
+            // Bonus images
+            const freezeImg = new window.Image();
+            freezeImg.src = 'freeze.png';
+            const x2Img = new window.Image();
+            x2Img.src = 'x2.png';
+            const lifeImg = new window.Image();
+            lifeImg.src = 'life.png';
+
+            // Helper to get mouse/touch position relative to canvas
+            function getCanvasMousePos(e) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;   // canvas physical size / displayed size
+                const scaleY = canvas.height / rect.height;
+
+                let clientX, clientY;
+
+                if (e.touches) {
+                    // Touch event
+                    if (e.touches.length > 0) {
+                        clientX = e.touches[0].clientX;
+                        clientY = e.touches[0].clientY;
+                    } else {
+                        return null;
+                    }
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+
+                // Calculate canvas coordinates
+const canvasX = (clientX - rect.left) * scaleX;
+                const canvasY = (clientY - rect.top) * scaleY;
+
+                return { x: canvasX, y: canvasY };
+            }
+
+            // Move paddle with mouse/touch
+            function handleMouseMove(e) {
+                if (gameOver) return;
+
+                const pos = getCanvasMousePos(e);
+                if (!pos) return;
+
+                // Clamp paddle position
+                let newX = pos.x - paddleWidth / 2;
+                if (newX < 0) newX = 0;
+                if (newX + paddleWidth > canvas.width) newX = canvas.width - paddleWidth;
+                paddleX = newX;
+            }
+
+            // Prevent default touch events (scrolling, etc.)
+            function preventTouchDefault(e) {
+                e.preventDefault();
+            }
+
+            // Attach event listeners
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('touchmove', (e) => {
+                preventTouchDefault(e);
+                handleMouseMove(e);
+            });
+            canvas.addEventListener('touchstart', preventTouchDefault); // also prevent on start
+
+            // Optional: show a subtle hint when mouse leaves canvas
+            canvas.addEventListener('mouseleave', () => {
+                mouseInside = false;
+            });
+            canvas.addEventListener('mouseenter', () => {
+                mouseInside = true;
+            });
+
+            // Game loop
+            function gameLoop() {
+                if (gameOver) {
+                    draw();
+                    return;
+                }
+
+                // Update stars
+                for (let i = stars.length - 1; i >= 0; i--) {
+                    const star = stars[i];
+                    // Эффект замедления времени
+                    if (freezeActive) {
+                        star.y += star.speed * 0.35;
+                    } else {
+                        star.y += star.speed;
+                    }
+
+                    // Collision with paddle
+                    if (star.y + starRadius >= paddleY && 
+                        star.x > paddleX && 
+                        star.x < paddleX + paddleWidth) {
+                        // Caught!
+                        if (star.type === 'freeze') {
+                            // Эффект замедления времени на 5 секунд
+                            freezeActive = true;
+                            if (freezeTimeout) clearTimeout(freezeTimeout);
+                            freezeTimeout = setTimeout(() => {
+                                freezeActive = false;
+                            }, 5000);
+                        } else if (star.type === 'x2') {
+                            // Эффект x2 зоны на 5 секунд
+                            x2Active = true;
+                            paddleWidth = basePaddleWidth * 2;
+                            if (x2Timeout) clearTimeout(x2Timeout);
+                            x2Timeout = setTimeout(() => {
+                                x2Active = false;
+                                paddleWidth = basePaddleWidth;
+                            }, 5000);
+                        } else if (star.type === 'life') {
+                            // Доп. жизнь
+                            if (misses > 0) {
+                                misses--;
+                            } else {
+                                maxMisses++;
+                                // обновить отображение (отрисовка ниже)
+                            }
+                        } else {
+                            score++;
+                            scoreSpan.textContent = score;
+                        }
+                        stars.splice(i, 1);
+                        continue;
+                    }
+
+                    // Miss (fell off bottom)
+                    if (star.y - starRadius > canvas.height) {
+                        stars.splice(i, 1);
+                        // Пропуск бонусной звезды не штрафует
+                        if (star.type === 'normal') {
+                            misses++;
+                            if (misses >= maxMisses) {
+                                gameOver = true;
+                                gameOverSpan.textContent = '💔 GAME OVER 💔';
+                            }
+                        }
+                        continue;
+                    }
+                }
+
+                // Add new stars randomly
+                if (!gameOver && stars.length < 3) {
+                    let canAdd = true;
+                    if (stars.length > 0) {
+                        let maxY = -Infinity;
+                        for (let i = 0; i < stars.length; i++) {
+                            if (stars[i].y > maxY) maxY = stars[i].y;
+                        }
+                        const minDistance = canvas.height / 5;
+                        if (maxY < minDistance) {
+                            canAdd = false;
+                        }
+                    }
+                    if (canAdd) {
+                        const x = Math.random() * (canvas.width - 2 * starRadius) + starRadius;
+                        // Определяем тип звезды
+                        let type = 'normal';
+                        const r = Math.random();
+                        if (r < 0.04) type = 'freeze'; // 4% шанс
+                        else if (r < 0.07) type = 'x2'; // 3% шанс
+                        else if (r < 0.10) type = 'life'; // 3% шанс
+                        stars.push({
+                            x: x,
+                            y: -starRadius,
+                            speed: baseSpeed + Math.random() * 2,
+                            type: type
+                        });
+                    }
+                }
+
+                draw();
+                animationFrame = requestAnimationFrame(gameLoop);
+            }
+
+            // Drawing function
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw stars and bonuses
+                stars.forEach(star => {
+                    let img = null;
+                    if (star.type === 'freeze') img = freezeImg;
+                    else if (star.type === 'x2') img = x2Img;
+                    else if (star.type === 'life') img = lifeImg;
+                    else img = solanaImg;
+                    if (img && img.complete && img.naturalWidth > 0) {
+                        ctx.drawImage(img, star.x - starRadius, star.y - starRadius, starRadius * 2, starRadius * 2);
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(star.x, star.y, starRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = '#FFE55C';
+                        ctx.fill();
+                    }
+                });
+                ctx.shadowBlur = 0;
+                ctx.shadowColor = 'transparent';
+
+                // Draw paddle (basket)
+                ctx.fillStyle = '#e94560';
+                ctx.shadowColor = '#b23b4a';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8);
+                ctx.fill();
+
+                // Draw inner highlight on paddle
+                ctx.fillStyle = '#ff6b8b';
+                ctx.shadowBlur = 5;
+                ctx.beginPath();
+                ctx.roundRect(paddleX+3, paddleY-2, paddleWidth-6, 5, 4);
+                ctx.fill();
+
+                // Reset shadow
+                ctx.shadowBlur = 0;
+                ctx.shadowColor = 'transparent';
+
+                // Draw misses
+                ctx.fillStyle = '#f0f0f0';
+                ctx.font = '16px Arial';
+                ctx.fillText('Misses: ' + misses + '/' + maxMisses, 10, 30);
+
+                // If mouse not inside (optional small hint)
+                if (!mouseInside && !gameOver) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                    ctx.font = '14px Arial';
+                    ctx.fillText('Move mouse here', canvas.width-150, 30);
+                }
+            }
+
+            // Helper for rounded rect
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2;
+                if (h < 2 * r) r = h / 2;
+                this.moveTo(x + r, y);
+                this.lineTo(x + w - r, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r);
+                this.lineTo(x + w, y + h - r);
+                this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                this.lineTo(x + r, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r);
+                this.lineTo(x, y + r);
+                this.quadraticCurveTo(x, y, x + r, y);
+                return this;
+            };
+
+            // Restart game
+            function restartGame() {
+                stars = [];
+                score = 0;
+                misses = 0;
+                maxMisses = 3;
+                gameOver = false;
+                gameOverSpan.textContent = '';
+                scoreSpan.textContent = '0';
+                paddleWidth = basePaddleWidth;
+                freezeActive = false;
+                if (freezeTimeout) clearTimeout(freezeTimeout);
+                x2Active = false;
+                if (x2Timeout) clearTimeout(x2Timeout);
+                paddleX = (canvas.width - paddleWidth) / 2; // center paddle
+
+                // If loop stopped, restart it
+                if (animationFrame) {
+                    cancelAnimationFrame(animationFrame);
+                }
+                animationFrame = requestAnimationFrame(gameLoop);
+            }
+
+            restartBtn.addEventListener('click', restartGame);
+
+            // Start the game loop
+            restartGame(); // initial start
+
+            // Cleanup on page unload (optional but good practice)
+            window.addEventListener('beforeunload', () => {
+                if (animationFrame) {
+                    cancelAnimationFrame(animationFrame);
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
