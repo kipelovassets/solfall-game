@@ -244,6 +244,7 @@ const canvasX = (clientX - rect.left) * scaleX;
                             if (misses >= maxMisses) {
                                 gameOver = true;
                                 gameOverSpan.textContent = '💔 GAME OVER 💔';
+                                endSession();
                             }
                         }
                         continue;
@@ -355,6 +356,68 @@ const canvasX = (clientX - rect.left) * scaleX;
                 return this;
             };
 
+            // Server settings for score submission
+            const SERVER_URL = 'https://example.com/submit-score';
+            const DAILY_SESSION_LIMIT = 5;
+            const SESSION_SCORE_CAP = 420;
+            
+            let dailySessionCount = (function() {
+                const today = new Date().toISOString().split('T')[0];
+                const storedData = JSON.parse(localStorage.getItem('dailySessions')) || {};
+                return storedData.date === today ? storedData.count || 0 : 0;
+            })();
+            
+            let sessionScore = 0;
+            let sessionEnded = false;
+
+            // Submit score to the server
+            async function submitScoreToServer(scoreValue) {
+                try {
+                    const response = await fetch(SERVER_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ score: scoreValue })
+                    });
+                    if (!response.ok) throw new Error('Failed to submit score');
+                    console.log('Score submitted successfully');
+                } catch (error) {
+                    console.error('Error submitting score:', error);
+                }
+            }
+
+            // Update score with daily limits
+            function updateScore() {
+                if (dailySessionCount >= DAILY_SESSION_LIMIT) {
+                    gameOverSpan.textContent = 'Daily session limit reached!';
+                    gameOver = true;
+                    endSession();
+                    return;
+                }
+
+                if (sessionScore < SESSION_SCORE_CAP) {
+                    sessionScore++;
+                    scoreSpan.textContent = sessionScore;
+                } else {
+                    gameOverSpan.textContent = 'Session score cap reached!';
+                    gameOver = true;
+                    endSession();
+                }
+            }
+
+            // End session and submit score
+            function endSession() {
+                if (sessionScore > 0 && !sessionEnded) {
+                    submitScoreToServer(sessionScore);
+                    dailySessionCount++;
+                    const today = new Date().toISOString().split('T')[0];
+                    localStorage.setItem('dailySessions', JSON.stringify({
+                        date: today,
+                        count: dailySessionCount
+                    }));
+                    sessionEnded = true;
+                }
+            }
+
             // Restart game
             function restartGame() {
                 stars = [];
@@ -369,7 +432,9 @@ const canvasX = (clientX - rect.left) * scaleX;
                 if (freezeTimeout) clearTimeout(freezeTimeout);
                 x2Active = false;
                 if (x2Timeout) clearTimeout(x2Timeout);
-                paddleX = (canvas.width - paddleWidth) / 2; // center paddle
+                paddleX = (canvas.width - paddleWidth) / 2;
+                sessionScore = 0;
+                sessionEnded = false;
 
                 // If loop stopped, restart it
                 if (animationFrame) {
@@ -390,114 +455,6 @@ const canvasX = (clientX - rect.left) * scaleX;
                 }
             });
         })();
-
-        // Server URL for submitting scores
-        const SERVER_URL = 'https://example.com/submit-score';
-
-        // Game rules
-        const DAILY_SESSION_LIMIT = 5; // Max scoring sessions per day
-        const SESSION_SCORE_CAP = 100; // Max score per session
-
-        // Load daily session count from localStorage
-        function loadDailySessionCount() {
-            const today = new Date().toISOString().split('T')[0];
-            const storedData = JSON.parse(localStorage.getItem('dailySessions')) || {};
-
-            if (storedData.date === today) {
-                return storedData.count || 0;
-            } else {
-                // Reset session count if the date has changed
-                return 0;
-            }
-        }
-
-        // Save daily session count to localStorage
-        function saveDailySessionCount(newCount) {
-            const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem('dailySessions', JSON.stringify({
-                date: today,
-                count: newCount
-            }));
-        }
-
-        let dailySessionCount = loadDailySessionCount();
-        let sessionScore = 0;
-
-        // Submit score to the server
-        async function submitScoreToServer(score) {
-            try {
-                const response = await fetch(SERVER_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ score })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to submit score');
-                }
-
-                console.log('Score submitted successfully');
-            } catch (error) {
-                console.error('Error submitting score:', error);
-            }
-        }
-
-        // Update the scoring logic
-        function updateScore() {
-            if (dailySessionCount >= DAILY_SESSION_LIMIT) {
-                gameOverSpan.textContent = 'Daily session limit reached!';
-                return;
-            }
-
-            if (sessionScore < SESSION_SCORE_CAP) {
-                sessionScore++;
-                scoreSpan.textContent = sessionScore;
-            } else {
-                gameOverSpan.textContent = 'Session score cap reached!';
-            }
-        }
-
-        // End session and submit score
-        function endSession() {
-            if (sessionScore > 0) {
-                submitScoreToServer(sessionScore);
-                dailySessionCount++;
-                saveDailySessionCount(dailySessionCount);
-            }
-            sessionScore = 0;
-        }
-
-        // Modify the star collision logic to use updateScore
-        if (star.type === 'freeze') {
-            freezeActive = true;
-            if (freezeTimeout) clearTimeout(freezeTimeout);
-            freezeTimeout = setTimeout(() => {
-                freezeActive = false;
-            }, 5000);
-        } else if (star.type === 'x2') {
-            x2Active = true;
-            paddleWidth = basePaddleWidth * 2;
-            if (x2Timeout) clearTimeout(x2Timeout);
-            x2Timeout = setTimeout(() => {
-                x2Active = false;
-                paddleWidth = basePaddleWidth;
-            }, 5000);
-        } else if (star.type === 'life') {
-            if (misses > 0) {
-                misses--;
-            } else {
-                maxMisses++;
-            }
-        } else {
-            updateScore();
-        }
-
-        // Call endSession when the game ends
-        if (gameOver) {
-            endSession();
-        }
     </script>
 </body>
 </html>
