@@ -437,11 +437,13 @@ const canvasX = (clientX - rect.left) * scaleX;
 
             // End session and save points via Play Fun SDK
             async function endSession() {
-                if (sessionScore > bestScore && !sessionEnded && sdkReady) {
+                if (!sessionEnded && sdkReady) {
                     try {
                         // Call endGame to save points - this opens a modal with auto-login
                         await ogp.endGame();
-                        bestScore = sessionScore;
+                        if (sessionScore > bestScore) {
+                            bestScore = sessionScore;
+                        }
                         console.log('Game ended and points saved!');
                     } catch (error) {
                         console.error('Error ending game session:', error);
