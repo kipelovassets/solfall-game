@@ -358,14 +358,7 @@ const canvasX = (clientX - rect.left) * scaleX;
 
             // Server settings for score submission
             const SERVER_URL = 'https://example.com/submit-score';
-            const DAILY_SESSION_LIMIT = 5;
             const SESSION_SCORE_CAP = 420;
-            
-            let dailySessionCount = (function() {
-                const today = new Date().toISOString().split('T')[0];
-                const storedData = JSON.parse(localStorage.getItem('dailySessions')) || {};
-                return storedData.date === today ? storedData.count || 0 : 0;
-            })();
             
             let sessionScore = 0;
             let sessionEnded = false;
@@ -385,15 +378,8 @@ const canvasX = (clientX - rect.left) * scaleX;
                 }
             }
 
-            // Update score with daily limits
+            // Update score with session cap
             function updateScore() {
-                if (dailySessionCount >= DAILY_SESSION_LIMIT) {
-                    gameOverSpan.textContent = 'Daily session limit reached!';
-                    gameOver = true;
-                    endSession();
-                    return;
-                }
-
                 if (sessionScore < SESSION_SCORE_CAP) {
                     sessionScore++;
                     scoreSpan.textContent = sessionScore;
@@ -408,12 +394,6 @@ const canvasX = (clientX - rect.left) * scaleX;
             function endSession() {
                 if (sessionScore > 0 && !sessionEnded) {
                     submitScoreToServer(sessionScore);
-                    dailySessionCount++;
-                    const today = new Date().toISOString().split('T')[0];
-                    localStorage.setItem('dailySessions', JSON.stringify({
-                        date: today,
-                        count: dailySessionCount
-                    }));
                     sessionEnded = true;
                 }
             }
