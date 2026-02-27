@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Catch the Stars – play.fun embed</title>
     <meta name="x-ogp-key" content="70a7be76-02d6-43de-9aa0-354ec19703a3" id="ogp-key-meta" />
+    <script src="https://sdk.play.fun"></script>
     <style>
         body {
             margin: 0;
@@ -84,6 +85,44 @@
             const scoreSpan = document.getElementById('scoreValue');
             const gameOverSpan = document.getElementById('gameOverMessage');
             const restartBtn = document.getElementById('restartButton');
+
+            // Initialize Play Fun SDK
+            const ogp = new OpenGameSDK({ ui: { usePointsWidget: true, theme: 'dark' } });
+            let sdkReady = false;
+            let bestScore = 0;
+
+            ogp.on('OnReady', () => {
+                sdkReady = true;
+                console.log('Play Fun SDK ready - start your game!');
+                // Optionally get player's best score
+                initBestScore();
+            });
+
+            ogp.on('LoginSuccess', () => {
+                console.log('Logged in as:', ogp.playerId);
+            });
+
+            ogp.on('SavePointsSuccess', () => {
+                console.log('Points saved successfully!');
+            });
+
+            ogp.on('SavePointsFailed', () => {
+                console.error('Failed to save points');
+            });
+
+            ogp.init({ gameId: 'catch-the-stars-solfall' });
+
+            // Get player's best score from Play Fun
+            async function initBestScore() {
+                try {
+                    const result = await ogp.getPoints();
+                    bestScore = result?.points ? Number(result.points) : 0;
+                    console.log('Best score loaded:', bestScore);
+                } catch (error) {
+                    console.log('Could not load best score:', error);
+                    bestScore = 0;
+                }
+            }
 
             // Game settings
             let paddleWidth = 80;
@@ -383,6 +422,12 @@ const canvasX = (clientX - rect.left) * scaleX;
                 if (sessionScore < SESSION_SCORE_CAP) {
                     sessionScore++;
                     scoreSpan.textContent = sessionScore;
+                    
+                    // Add points to Play Fun if it's an improvement
+                    if (sessionScore > bestScore && sdkReady) {
+                        const pointsToAdd = sessionScore - bestScore;
+                        ogp.addPoints(pointsToAdd);
+                    }
                 } else {
                     gameOverSpan.textContent = 'Session score cap reached!';
                     gameOver = true;
@@ -390,10 +435,17 @@ const canvasX = (clientX - rect.left) * scaleX;
                 }
             }
 
-            // End session and submit score
-            function endSession() {
-                if (sessionScore > 0 && !sessionEnded) {
-                    submitScoreToServer(sessionScore);
+            // End session and save points via Play Fun SDK
+            async function endSession() {
+                if (sessionScore > bestScore && !sessionEnded && sdkReady) {
+                    try {
+                        // Call endGame to save points - this opens a modal with auto-login
+                        await ogp.endGame();
+                        bestScore = sessionScore;
+                        console.log('Game ended and points saved!');
+                    } catch (error) {
+                        console.error('Error ending game session:', error);
+                    }
                     sessionEnded = true;
                 }
             }
